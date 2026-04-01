@@ -1,0 +1,4 @@
+D:\Python\ARAD_TRAIN\DRAEM_checkpoints\DRAEM_seg_large_ae_large_0.0001_800_bs8_bottle_.pckl
+D:\Python\ARAD_TRAIN\DRAEM_checkpoints\DRAEM_seg_large_ae_large_0.0001_800_bs8_bottle__seg.pckl
+D:\Python\ARAD_TRAIN\save_files\checkpoints\bottle_best_recon.pckl
+D:\Python\ARAD_TRAIN\save_files\checkpoints\bottle_best_seg.pckl
