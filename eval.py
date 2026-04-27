@@ -7,6 +7,7 @@
 
 模式說明：
   Mode A - 僅重建損失 (Recon-Only): 以重建誤差圖作為異常分數
+  Mode A2- 單一使用判別一致性 (Disc-Only): 僅使用判別網路
   Mode B - + 判別一致性 (Recon + Disc): 以判別子網路輸出作為異常分數
   Mode C - 完整版 (Full Pipeline): 加入平均池化平滑後處理
 
@@ -123,6 +124,11 @@ def ablation_inference_single(image_path, obj_name, checkpoint_dir, device, save
         l2_error = ((recon_output - image_tensor) ** 2).mean(dim=1, keepdim=True)
         mode_a_map = l2_error[0, 0].cpu().numpy()
 
+        # --- Mode A2: 單一使用判別網路 (Disc-Only) ---
+        joined_input_disc = torch.cat((image_tensor, image_tensor), dim=1)
+        seg_output_disc = seg_model(joined_input_disc)
+        mode_a2_map = torch.softmax(seg_output_disc, dim=1)[0, 1].cpu().numpy()
+
         # --- Mode B: 重建 + 判別 ---
         joined_input = torch.cat((recon_output, image_tensor), dim=1)
         seg_output = seg_model(joined_input)
@@ -140,13 +146,13 @@ def ablation_inference_single(image_path, obj_name, checkpoint_dir, device, save
         recon_display = np.clip(recon_display, 0, 1)
 
     # 4. 視覺化
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    fig, axes = plt.subplots(2, 4, figsize=(24, 10))
     fig.suptitle(
         f"消融實驗 - {obj_name} - {os.path.basename(image_path)}",
         fontsize=16, fontweight="bold"
     )
 
-    # 第一行：原圖、重建圖、重建誤差差異
+    # 第一行：原圖、重建圖、重建誤差差異、空白
     axes[0, 0].imshow(original_image)
     axes[0, 0].set_title("原始圖像", fontsize=12)
     axes[0, 0].axis("off")
@@ -161,7 +167,9 @@ def ablation_inference_single(image_path, obj_name, checkpoint_dir, device, save
     axes[0, 2].set_title("重建差異 |Input - Recon|", fontsize=12)
     axes[0, 2].axis("off")
 
-    # 第二行：三種異常分數圖
+    axes[0, 3].axis("off") # 空白預留
+
+    # 第二行：四種異常分數圖
     im_a = axes[1, 0].imshow(mode_a_map, cmap="hot", vmin=0)
     axes[1, 0].set_title(
         f"Mode A: 僅 L_recon\nMax: {mode_a_map.max():.4f}",
@@ -170,21 +178,29 @@ def ablation_inference_single(image_path, obj_name, checkpoint_dir, device, save
     axes[1, 0].axis("off")
     plt.colorbar(im_a, ax=axes[1, 0], fraction=0.046, pad=0.04)
 
-    im_b = axes[1, 1].imshow(mode_b_map, cmap="hot", vmin=0, vmax=1)
+    im_a2 = axes[1, 1].imshow(mode_a2_map, cmap="hot", vmin=0, vmax=1)
     axes[1, 1].set_title(
-        f"Mode B: + L_s_dist\nMax: {mode_b_map.max():.4f}",
+        f"Mode A2: Disc Only\nMax: {mode_a2_map.max():.4f}",
         fontsize=11
     )
     axes[1, 1].axis("off")
-    plt.colorbar(im_b, ax=axes[1, 1], fraction=0.046, pad=0.04)
+    plt.colorbar(im_a2, ax=axes[1, 1], fraction=0.046, pad=0.04)
 
-    im_c = axes[1, 2].imshow(mode_c_map, cmap="hot", vmin=0, vmax=1)
+    im_b = axes[1, 2].imshow(mode_b_map, cmap="hot", vmin=0, vmax=1)
     axes[1, 2].set_title(
-        f"Mode C: Full (Warmup)\nMax: {mode_c_map.max():.4f}",
+        f"Mode B: + L_s_dist\nMax: {mode_b_map.max():.4f}",
         fontsize=11
     )
     axes[1, 2].axis("off")
-    plt.colorbar(im_c, ax=axes[1, 2], fraction=0.046, pad=0.04)
+    plt.colorbar(im_b, ax=axes[1, 2], fraction=0.046, pad=0.04)
+
+    im_c = axes[1, 3].imshow(mode_c_map, cmap="hot", vmin=0, vmax=1)
+    axes[1, 3].set_title(
+        f"Mode C: Full (Warmup)\nMax: {mode_c_map.max():.4f}",
+        fontsize=11
+    )
+    axes[1, 3].axis("off")
+    plt.colorbar(im_c, ax=axes[1, 3], fraction=0.046, pad=0.04)
 
     plt.tight_layout()
 

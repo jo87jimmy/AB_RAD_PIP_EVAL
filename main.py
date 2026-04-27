@@ -132,6 +132,7 @@ class AblationMode:
     用於衡量不同模組對最終效能 (AUROC) 的貢獻。
     """
     RECON_ONLY = "recon_only"          # Mode A: 僅使用重建誤差
+    DISC_ONLY = "disc_only"            # Mode A2: 單一使用判別一致性 (Disc Only)
     RECON_PLUS_DISC = "recon_plus_disc"  # Mode B: 重建 + 判別分割
     FULL_PIPELINE = "full_pipeline"      # Mode C: 完整版 (含平均池化平滑)
 
@@ -175,6 +176,43 @@ def compute_anomaly_score_recon_only(recon_model, image_batch, device):
             image_scores.append(float(np.max(error_map)))
             # 像素級分數：展平供 AUROC 計算
             pixel_scores_flat.append(error_map.flatten())
+
+    return image_scores, pixel_scores_flat
+
+
+def compute_anomaly_score_disc_only(seg_model, image_batch, device):
+    """
+    Mode A2: 單一使用 判別一致性 (Disc-Only)
+
+    單獨評估判別子網路，不使用重建網路的輸出。
+    由於判別網路需要 6 通道輸入，因此將原始圖像與自己拼接送入。
+
+    原因：
+      消融實驗需要證明重建網路的必要性。如果單獨使用判別網路
+      (輸入無差異的影像) 效能大幅下降，即證明了重建網路的貢獻。
+
+    Args:
+        seg_model: 判別子網路
+        image_batch: 輸入圖像批次 [B, 3, H, W]
+        device: 運算裝置
+
+    Returns:
+        tuple: (image_scores, pixel_scores_flat)
+    """
+    with torch.no_grad():
+        # 將原始圖像與自己拼接，形成 6 通道輸入
+        joined_input = torch.cat((image_batch, image_batch), dim=1)
+        seg_output = seg_model(joined_input)
+        # softmax 後取異常類別 (index=1) 的機率
+        seg_probs = torch.softmax(seg_output, dim=1)
+
+        image_scores = []
+        pixel_scores_flat = []
+
+        for i in range(seg_probs.shape[0]):
+            anomaly_map = seg_probs[i, 1].cpu().numpy()  # [H, W]
+            image_scores.append(float(np.max(anomaly_map)))
+            pixel_scores_flat.append(anomaly_map.flatten())
 
     return image_scores, pixel_scores_flat
 
@@ -318,6 +356,7 @@ def run_ablation_for_category(obj_name, args, device):
     # 4. 各模式的預測結果容器
     results_per_mode = {
         AblationMode.RECON_ONLY: {"img_scores": [], "pix_scores": []},
+        AblationMode.DISC_ONLY: {"img_scores": [], "pix_scores": []},
         AblationMode.RECON_PLUS_DISC: {"img_scores": [], "pix_scores": []},
         AblationMode.FULL_PIPELINE: {"img_scores": [], "pix_scores": []},
     }
@@ -337,6 +376,13 @@ def run_ablation_for_category(obj_name, args, device):
         )
         results_per_mode[AblationMode.RECON_ONLY]["img_scores"].extend(img_s)
         results_per_mode[AblationMode.RECON_ONLY]["pix_scores"].extend(pix_s)
+
+        # --- Mode A2: Disc-Only ---
+        img_s, pix_s = compute_anomaly_score_disc_only(
+            seg_model, image_batch, device
+        )
+        results_per_mode[AblationMode.DISC_ONLY]["img_scores"].extend(img_s)
+        results_per_mode[AblationMode.DISC_ONLY]["pix_scores"].extend(pix_s)
 
         # --- Mode B: Recon + Disc ---
         img_s, pix_s = compute_anomaly_score_recon_plus_disc(
@@ -359,6 +405,7 @@ def run_ablation_for_category(obj_name, args, device):
     category_results = {}
     mode_display_names = {
         AblationMode.RECON_ONLY: "Mode A: 僅重建損失 (L_recon)",
+        AblationMode.DISC_ONLY: "Mode A2: 單一使用判別一致性",
         AblationMode.RECON_PLUS_DISC: "Mode B: + 判別一致性 (L_s_dist)",
         AblationMode.FULL_PIPELINE: "Mode C: 完整版 (動態權重 Warmup)",
     }
@@ -407,11 +454,13 @@ def print_ablation_table(all_results):
     """
     modes = [
         AblationMode.RECON_ONLY,
+        AblationMode.DISC_ONLY,
         AblationMode.RECON_PLUS_DISC,
         AblationMode.FULL_PIPELINE,
     ]
     mode_short_names = {
         AblationMode.RECON_ONLY: "L_recon Only",
+        AblationMode.DISC_ONLY: "Disc Only",
         AblationMode.RECON_PLUS_DISC: "+ L_s_dist",
         AblationMode.FULL_PIPELINE: "Full (Warmup)",
     }
@@ -496,11 +545,13 @@ def save_results_to_csv(all_results, output_path):
     """
     modes = [
         AblationMode.RECON_ONLY,
+        AblationMode.DISC_ONLY,
         AblationMode.RECON_PLUS_DISC,
         AblationMode.FULL_PIPELINE,
     ]
     mode_labels = {
         AblationMode.RECON_ONLY: "L_recon_Only",
+        AblationMode.DISC_ONLY: "Disc_Only",
         AblationMode.RECON_PLUS_DISC: "Plus_L_s_dist",
         AblationMode.FULL_PIPELINE: "Full_Warmup",
     }
